@@ -746,7 +746,7 @@ elif mode == "Score specific IDs":
                 )
             if st.button("Press this to start a new run"):
                 st.session_state.pop("qids_results", None)
-                st.experimental_rerun()
+                st.rerun()
 
 elif mode == "Aggregate author scores from CSV":
     st.subheader("Aggregate author scores from a CSV of comments")
