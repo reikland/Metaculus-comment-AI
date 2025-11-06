@@ -512,6 +512,21 @@ api_key = st.sidebar.text_input(
 if api_key:
     OPENROUTER_API_KEY = api_key.strip()
 
+model_choice_mode = st.sidebar.radio(
+    "Model selection",
+    ["Auto (cheapest instruct)", "Manual ID"],
+    index=0,
+)
+manual_model = ""
+if model_choice_mode == "Manual ID":
+    manual_model = st.sidebar.text_input(
+        "OpenRouter model id",
+        value=OPENROUTER_MODEL,
+        help="Example: openai/gpt-4.1-mini",
+    )
+if manual_model.strip():
+    OPENROUTER_MODEL = manual_model.strip()
+
 mode = st.sidebar.radio(
     "Mode",
     ["List models", "Score recent questions", "Score specific IDs", "Aggregate author scores from CSV"],
@@ -573,13 +588,36 @@ elif mode == "Score recent questions":
                 df = pd.DataFrame(rows)
                 st.success(f"{len(rows)} comments scored.")
                 st.dataframe(df, use_container_width=True)
-                csv_data = rows_to_csv(rows)
-                st.download_button(
-                    "Download CSV",
-                    data=csv_data,
-                    file_name="metaculus_comment_scores_recent.csv",
-                    mime="text/csv",
-                )
+                comments_csv = rows_to_csv(rows)
+                try:
+                    agg_df, auth_col, score_col = aggregate_author_scores(df)
+                    st.markdown(f"Aggregated by `{auth_col}` using score column `{score_col}`.")
+                    st.dataframe(agg_df, use_container_width=True)
+                    agg_buf = io.StringIO()
+                    agg_df.to_csv(agg_buf, index=False)
+                    agg_bytes = agg_buf.getvalue().encode("utf-8")
+                    st.markdown("#### Downloads")
+                    c1, c2 = st.columns(2)
+                    c1.download_button(
+                        "Download comment scores CSV",
+                        data=comments_csv,
+                        file_name="metaculus_comment_scores_recent.csv",
+                        mime="text/csv",
+                    )
+                    c2.download_button(
+                        "Download author totals CSV",
+                        data=agg_bytes,
+                        file_name="metaculus_author_totals_recent.csv",
+                        mime="text/csv",
+                    )
+                except Exception as e:
+                    st.warning(f"Could not aggregate author scores: {e}")
+                    st.download_button(
+                        "Download comment scores CSV",
+                        data=comments_csv,
+                        file_name="metaculus_comment_scores_recent.csv",
+                        mime="text/csv",
+                    )
             else:
                 st.info("No comments were scored.")
 
@@ -615,13 +653,36 @@ elif mode == "Score specific IDs":
                     df = pd.DataFrame(rows)
                     st.success(f"{len(rows)} comments scored.")
                     st.dataframe(df, use_container_width=True)
-                    csv_data = rows_to_csv(rows)
-                    st.download_button(
-                        "Download CSV",
-                        data=csv_data,
-                        file_name="metaculus_comment_scores_qids.csv",
-                        mime="text/csv",
-                    )
+                    comments_csv = rows_to_csv(rows)
+                    try:
+                        agg_df, auth_col, score_col = aggregate_author_scores(df)
+                        st.markdown(f"Aggregated by `{auth_col}` using score column `{score_col}`.")
+                        st.dataframe(agg_df, use_container_width=True)
+                        agg_buf = io.StringIO()
+                        agg_df.to_csv(agg_buf, index=False)
+                        agg_bytes = agg_buf.getvalue().encode("utf-8")
+                        st.markdown("#### Downloads")
+                        c1, c2 = st.columns(2)
+                        c1.download_button(
+                            "Download comment scores CSV",
+                            data=comments_csv,
+                            file_name="metaculus_comment_scores_qids.csv",
+                            mime="text/csv",
+                        )
+                        c2.download_button(
+                            "Download author totals CSV",
+                            data=agg_bytes,
+                            file_name="metaculus_author_totals_qids.csv",
+                            mime="text/csv",
+                        )
+                    except Exception as e:
+                        st.warning(f"Could not aggregate author scores: {e}")
+                        st.download_button(
+                            "Download comment scores CSV",
+                            data=comments_csv,
+                            file_name="metaculus_comment_scores_qids.csv",
+                            mime="text/csv",
+                        )
                 else:
                     st.info("No comments were scored.")
 
