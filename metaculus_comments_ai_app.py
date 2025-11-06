@@ -102,7 +102,7 @@ def fetch_comments_for_post(post_id: int, page_limit: int = 120) -> List[Dict[st
             time.sleep(0.2)
         else:
             if batch:
-                params["offset"] = params.get("offset", 0) + params.get("limit", page_limit)
+                params["offset"] = params.get("offset") + params.get("limit", page_limit)
                 url = base
                 time.sleep(0.2)
             else:
@@ -547,7 +547,7 @@ if mode == "List models":
             if not models:
                 st.write("No models visible (invalid key or no access).")
             else:
-                df = pd.DataFrame(
+                df_models = pd.DataFrame(
                     [
                         {
                             "id": x.get("id"),
@@ -561,7 +561,7 @@ if mode == "List models":
                         for x in models
                     ]
                 )
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df_models, use_container_width=True)
         except Exception as e:
             st.error(f"Error while fetching models: {e}")
 
@@ -586,40 +586,71 @@ elif mode == "Score recent questions":
                     rows = []
             if rows:
                 df = pd.DataFrame(rows)
-                st.success(f"{len(rows)} comments scored.")
-                st.dataframe(df, use_container_width=True)
                 comments_csv = rows_to_csv(rows)
                 try:
                     agg_df, auth_col, score_col = aggregate_author_scores(df)
-                    st.markdown(f"Aggregated by `{auth_col}` using score column `{score_col}`.")
-                    st.dataframe(agg_df, use_container_width=True)
                     agg_buf = io.StringIO()
                     agg_df.to_csv(agg_buf, index=False)
                     agg_bytes = agg_buf.getvalue().encode("utf-8")
-                    st.markdown("#### Downloads")
-                    c1, c2 = st.columns(2)
-                    c1.download_button(
-                        "Download comment scores CSV",
-                        data=comments_csv,
-                        file_name="metaculus_comment_scores_recent.csv",
-                        mime="text/csv",
-                    )
-                    c2.download_button(
-                        "Download author totals CSV",
-                        data=agg_bytes,
-                        file_name="metaculus_author_totals_recent.csv",
-                        mime="text/csv",
-                    )
+                    st.session_state["recent_results"] = {
+                        "df": df,
+                        "agg_df": agg_df,
+                        "comments_csv": comments_csv,
+                        "agg_bytes": agg_bytes,
+                        "auth_col": auth_col,
+                        "score_col": score_col,
+                    }
                 except Exception as e:
-                    st.warning(f"Could not aggregate author scores: {e}")
-                    st.download_button(
-                        "Download comment scores CSV",
-                        data=comments_csv,
-                        file_name="metaculus_comment_scores_recent.csv",
-                        mime="text/csv",
-                    )
+                    st.session_state["recent_results"] = {
+                        "df": df,
+                        "agg_df": None,
+                        "comments_csv": comments_csv,
+                        "agg_bytes": None,
+                        "auth_col": None,
+                        "score_col": None,
+                        "error": str(e),
+                    }
             else:
                 st.info("No comments were scored.")
+        if "recent_results" in st.session_state:
+            res = st.session_state["recent_results"]
+            df = res["df"]
+            st.success(f"{len(df)} comments scored.")
+            st.dataframe(df, use_container_width=True)
+            comments_csv = res["comments_csv"]
+            if res.get("agg_df") is not None:
+                agg_df = res["agg_df"]
+                auth_col = res["auth_col"]
+                score_col = res["score_col"]
+                st.markdown(f"Aggregated by `{auth_col}` using score column `{score_col}`.")
+                st.dataframe(agg_df, use_container_width=True)
+                agg_bytes = res["agg_bytes"]
+                st.markdown("#### Downloads")
+                c1, c2 = st.columns(2)
+                c1.download_button(
+                    "Download comment scores CSV",
+                    data=comments_csv,
+                    file_name="metaculus_comment_scores_recent.csv",
+                    mime="text/csv",
+                )
+                c2.download_button(
+                    "Download author totals CSV",
+                    data=agg_bytes,
+                    file_name="metaculus_author_totals_recent.csv",
+                    mime="text/csv",
+                )
+            else:
+                if "error" in res:
+                    st.warning(f"Could not aggregate author scores: {res['error']}")
+                st.download_button(
+                    "Download comment scores CSV",
+                    data=comments_csv,
+                    file_name="metaculus_comment_scores_recent.csv",
+                    mime="text/csv",
+                )
+            if st.button("Press this to start a new run"):
+                st.session_state.pop("recent_results", None)
+                st.experimental_rerun()
 
 elif mode == "Score specific IDs":
     if not OPENROUTER_API_KEY:
@@ -651,40 +682,71 @@ elif mode == "Score specific IDs":
                         rows = []
                 if rows:
                     df = pd.DataFrame(rows)
-                    st.success(f"{len(rows)} comments scored.")
-                    st.dataframe(df, use_container_width=True)
                     comments_csv = rows_to_csv(rows)
                     try:
                         agg_df, auth_col, score_col = aggregate_author_scores(df)
-                        st.markdown(f"Aggregated by `{auth_col}` using score column `{score_col}`.")
-                        st.dataframe(agg_df, use_container_width=True)
                         agg_buf = io.StringIO()
                         agg_df.to_csv(agg_buf, index=False)
                         agg_bytes = agg_buf.getvalue().encode("utf-8")
-                        st.markdown("#### Downloads")
-                        c1, c2 = st.columns(2)
-                        c1.download_button(
-                            "Download comment scores CSV",
-                            data=comments_csv,
-                            file_name="metaculus_comment_scores_qids.csv",
-                            mime="text/csv",
-                        )
-                        c2.download_button(
-                            "Download author totals CSV",
-                            data=agg_bytes,
-                            file_name="metaculus_author_totals_qids.csv",
-                            mime="text/csv",
-                        )
+                        st.session_state["qids_results"] = {
+                            "df": df,
+                            "agg_df": agg_df,
+                            "comments_csv": comments_csv,
+                            "agg_bytes": agg_bytes,
+                            "auth_col": auth_col,
+                            "score_col": score_col,
+                        }
                     except Exception as e:
-                        st.warning(f"Could not aggregate author scores: {e}")
-                        st.download_button(
-                            "Download comment scores CSV",
-                            data=comments_csv,
-                            file_name="metaculus_comment_scores_qids.csv",
-                            mime="text/csv",
-                        )
+                        st.session_state["qids_results"] = {
+                            "df": df,
+                            "agg_df": None,
+                            "comments_csv": comments_csv,
+                            "agg_bytes": None,
+                            "auth_col": None,
+                            "score_col": None,
+                            "error": str(e),
+                        }
                 else:
                     st.info("No comments were scored.")
+        if "qids_results" in st.session_state:
+            res = st.session_state["qids_results"]
+            df = res["df"]
+            st.success(f"{len(df)} comments scored.")
+            st.dataframe(df, use_container_width=True)
+            comments_csv = res["comments_csv"]
+            if res.get("agg_df") is not None:
+                agg_df = res["agg_df"]
+                auth_col = res["auth_col"]
+                score_col = res["score_col"]
+                st.markdown(f"Aggregated by `{auth_col}` using score column `{score_col}`.")
+                st.dataframe(agg_df, use_container_width=True)
+                agg_bytes = res["agg_bytes"]
+                st.markdown("#### Downloads")
+                c1, c2 = st.columns(2)
+                c1.download_button(
+                    "Download comment scores CSV",
+                    data=comments_csv,
+                    file_name="metaculus_comment_scores_qids.csv",
+                    mime="text/csv",
+                )
+                c2.download_button(
+                    "Download author totals CSV",
+                    data=agg_bytes,
+                    file_name="metaculus_author_totals_qids.csv",
+                    mime="text/csv",
+                )
+            else:
+                if "error" in res:
+                    st.warning(f"Could not aggregate author scores: {res['error']}")
+                st.download_button(
+                    "Download comment scores CSV",
+                    data=comments_csv,
+                    file_name="metaculus_comment_scores_qids.csv",
+                    mime="text/csv",
+                )
+            if st.button("Press this to start a new run"):
+                st.session_state.pop("qids_results", None)
+                st.experimental_rerun()
 
 elif mode == "Aggregate author scores from CSV":
     st.subheader("Aggregate author scores from a CSV of comments")
@@ -717,4 +779,5 @@ elif mode == "Aggregate author scores from CSV":
                 )
             except Exception as e:
                 st.error(str(e))
+
 
