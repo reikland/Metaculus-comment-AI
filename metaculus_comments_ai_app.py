@@ -12,8 +12,7 @@ from typing import Dict, Any, List, Optional
 import requests
 import streamlit as st
 import pandas as pd
-
-# ========== CONFIG ==========
+import re
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -36,9 +35,6 @@ API = "https://www.metaculus.com/api"
 UA = {"User-Agent": "metaculus-comments-llm-scorer/0.7 (+python-requests)"}
 HTTP = requests.Session()
 
-# ========== METACULUS ==========
-
-
 def _get(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     r = HTTP.get(url, params=params or {}, headers=UA, timeout=30)
     if r.status_code == 429:
@@ -48,14 +44,11 @@ def _get(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     r.raise_for_status()
     return r.json()
 
-
 def fetch_recent_questions(n_subjects: int = 10, page_limit: int = 80) -> List[Dict[str, Any]]:
     data = _get(f"{API2}/questions/", {"status": "open", "limit": page_limit})
     results = data.get("results") or data.get("data") or []
-
     def ts(q):
         return q.get("open_time") or q.get("created_at") or q.get("scheduled_close_time") or ""
-
     results.sort(key=ts, reverse=True)
     out = []
     for q in results[:n_subjects]:
@@ -73,7 +66,6 @@ def fetch_recent_questions(n_subjects: int = 10, page_limit: int = 80) -> List[D
         )
     return out
 
-
 def fetch_question_by_id(qid: int) -> Optional[Dict[str, Any]]:
     try:
         q = _get(f"{API2}/questions/{qid}/")
@@ -89,7 +81,6 @@ def fetch_question_by_id(qid: int) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"[metaculus] could not fetch question {qid}: {e!r}")
         return None
-
 
 def fetch_comments_for_post(post_id: int, page_limit: int = 120) -> List[Dict[str, Any]]:
     base = f"{API}/comments/"
@@ -118,16 +109,11 @@ def fetch_comments_for_post(post_id: int, page_limit: int = 120) -> List[Dict[st
                 break
     return out
 
-
-# ========== OPENROUTER ==========
-
-
 def _ascii(s: str) -> str:
     try:
         return s.encode("latin-1", "ignore").decode("latin-1")
     except Exception:
         return "".join(ch for ch in s if ord(ch) < 256)
-
 
 def or_headers() -> Dict[str, str]:
     if not OPENROUTER_API_KEY:
@@ -141,13 +127,11 @@ def or_headers() -> Dict[str, str]:
         "User-Agent": _ascii("metaculus-comments-llm-scorer/0.7"),
     }
 
-
 def list_models_raw() -> List[Dict[str, Any]]:
     r = requests.get(OPENROUTER_MODELS, headers=or_headers(), timeout=30)
     r.raise_for_status()
     data = r.json()
     return data.get("data") or data.get("models") or []
-
 
 def list_models_clean() -> List[Dict[str, Any]]:
     try:
@@ -168,7 +152,6 @@ def list_models_clean() -> List[Dict[str, Any]]:
             }
         )
     return out
-
 
 def pick_model() -> str:
     global OPENROUTER_MODEL
@@ -198,7 +181,6 @@ def pick_model() -> str:
             OPENROUTER_MODEL = best_id
             return best_id
     return PREFERRED_MODELS[0]
-
 
 SYSTEM_PROMPT = (
     "You are a strict rater for a forecasting forum.\n\n"
@@ -291,7 +273,6 @@ FEWSHOTS = [
     },
 ]
 
-
 def build_msgs(
     qtitle: str, qurl: str, text: str, cid: int, aid: Optional[int], votes: Optional[int]
 ) -> List[Dict[str, str]]:
@@ -308,7 +289,6 @@ def build_msgs(
         {"role": "user", "content": u}
     ]
 
-
 def parse_json_strict(s: str) -> Dict[str, Any]:
     try:
         return json.loads(s)
@@ -318,7 +298,6 @@ def parse_json_strict(s: str) -> Dict[str, Any]:
         if a != -1 and b != -1:
             return json.loads(s[a : b + 1])
         raise
-
 
 def call_openrouter(messages: List[Dict[str, str]], model: str, retries: int = 3) -> Dict[str, Any]:
     payload = {
@@ -366,9 +345,7 @@ def call_openrouter(messages: List[Dict[str, str]], model: str, retries: int = 3
         "evidence_urls": [],
     }
 
-
 _cache: Dict[str, Dict[str, Any]] = {}
-
 
 def score_with_llm(qtitle: str, qurl: str, c: Dict[str, Any], model: str) -> int:
     text = (c.get("text") or "").strip()
@@ -395,10 +372,6 @@ def score_with_llm(qtitle: str, qurl: str, c: Dict[str, Any], model: str) -> int
         score = 3
     return max(1, min(5, score))
 
-
-# ========== HELPERS FOR STREAMLIT ==========
-
-
 def rows_to_csv(rows: List[Dict[str, Any]]) -> str:
     output = io.StringIO()
     fieldnames = ["poster_id", "comment_id", "market_id", "ai_score", "comment_text"]
@@ -407,21 +380,17 @@ def rows_to_csv(rows: List[Dict[str, Any]]) -> str:
     writer.writerows(rows)
     return output.getvalue()
 
-
 def score_recent_questions_streamlit(n: int, comments_limit: int) -> List[Dict[str, Any]]:
     model = pick_model()
     st.info(f"OpenRouter model: **{model}**")
     subjects = fetch_recent_questions(n_subjects=n, page_limit=80)
     rows: List[Dict[str, Any]] = []
-
     if not subjects:
         st.warning("No questions fetched from Metaculus.")
         return rows
-
     progress = st.progress(0.0)
     status = st.empty()
     total = len(subjects)
-
     for i, s in enumerate(subjects, 1):
         sid = s["id"]
         status.markdown(f"### Question {i}/{total} – [{sid}] {s['title']}\n{s['url']}")
@@ -445,20 +414,16 @@ def score_recent_questions_streamlit(n: int, comments_limit: int) -> List[Dict[s
                     }
                 )
         progress.progress(i / total)
-
     status.markdown("✅ Done.")
     return rows
-
 
 def score_specific_qids_streamlit(qids: List[int], comments_limit: int) -> List[Dict[str, Any]]:
     model = pick_model()
     st.info(f"OpenRouter model: **{model}**")
     rows: List[Dict[str, Any]] = []
-
     total = len(qids)
     progress = st.progress(0.0)
     status = st.empty()
-
     for i, qid in enumerate(qids, 1):
         status.markdown(f"### Question {i}/{total} – ID `{qid}`")
         subject = fetch_question_by_id(qid)
@@ -466,13 +431,11 @@ def score_specific_qids_streamlit(qids: List[int], comments_limit: int) -> List[
             st.warning(f"- Question {qid} not found.")
             progress.progress(i / total)
             continue
-
         comments = fetch_comments_for_post(subject["id"], page_limit=comments_limit)
         if not comments:
             st.write(f"- No public comments for `{qid}`.")
             progress.progress(i / total)
             continue
-
         for c in comments:
             text = " ".join((c.get("text") or "").split())
             if not text:
@@ -488,14 +451,51 @@ def score_specific_qids_streamlit(qids: List[int], comments_limit: int) -> List[
                     "comment_text": text,
                 }
             )
-
         progress.progress(i / total)
-
     status.markdown("✅ Done.")
     return rows
 
+author_aliases = [
+    r"poster_id",
+    r"author_id",
+    r"user_id",
+    r"commenter_id",
+    r"account_id",
+    r"poster",
+    r"author",
+    r"user",
+]
+score_aliases = [r"ai_score", r"score", r"rating", r"model_score"]
 
-# ========== STREAMLIT UI ==========
+def find_col(df: pd.DataFrame, patterns: List[str]) -> Optional[str]:
+    cols = list(df.columns)
+    for p in patterns:
+        for c in cols:
+            if c.lower() == p.lower():
+                return c
+    for p in patterns:
+        r = re.compile(p, re.I)
+        for c in cols:
+            if r.search(c):
+                return c
+    return None
+
+def aggregate_author_scores(df: pd.DataFrame) -> Tuple[pd.DataFrame, str, str]:
+    auth_col = find_col(df, author_aliases)
+    score_col = find_col(df, score_aliases)
+    if not auth_col or not score_col:
+        raise ValueError(
+            f"Columns not found.\nAuthor column: {auth_col}\nScore column: {score_col}\nAvailable: {list(df.columns)}"
+        )
+    df = df.copy()
+    df[score_col] = pd.to_numeric(df[score_col], errors="coerce").clip(1, 5)
+    agg = (
+        df.dropna(subset=[auth_col, score_col])
+        .groupby(auth_col, as_index=False)[score_col]
+        .agg(total="sum", count="size", mean="mean")
+        .sort_values("total", ascending=False)
+    )
+    return agg, auth_col, score_col
 
 st.set_page_config(page_title="Metaculus Comment Scorer", layout="wide")
 st.title("🔍 Metaculus Comment Scorer (OpenRouter + LLM)")
@@ -509,13 +509,12 @@ api_key = st.sidebar.text_input(
     value=default_key,
     help="You can also set it via the OPENROUTER_API_KEY environment variable.",
 )
-
 if api_key:
     OPENROUTER_API_KEY = api_key.strip()
 
 mode = st.sidebar.radio(
     "Mode",
-    ["List models", "Score recent questions", "Score specific IDs"],
+    ["List models", "Score recent questions", "Score specific IDs", "Aggregate author scores from CSV"],
 )
 
 st.sidebar.markdown("---")
@@ -551,63 +550,22 @@ if mode == "List models":
         except Exception as e:
             st.error(f"Error while fetching models: {e}")
 
-elif not OPENROUTER_API_KEY:
-    st.warning("Enter your OpenRouter API key in the sidebar to use scoring modes.")
-
 elif mode == "Score recent questions":
-    st.subheader("Score recent Metaculus questions")
-    n = st.number_input(
-        "Number of recent questions",
-        min_value=1,
-        max_value=100,
-        value=10,
-        step=1,
-    )
-    if st.button("Run scoring on recent questions"):
-        with st.spinner("Fetching and scoring comments..."):
-            try:
-                rows = score_recent_questions_streamlit(n=n, comments_limit=comments_limit)
-            except Exception as e:
-                st.error(f"Error during scoring: {e}")
-                rows = []
-        if rows:
-            df = pd.DataFrame(rows)
-            st.success(f"{len(rows)} comments scored.")
-            st.dataframe(df, use_container_width=True)
-            csv_data = rows_to_csv(rows)
-            st.download_button(
-                "Download CSV",
-                data=csv_data,
-                file_name="metaculus_comment_scores_recent.csv",
-                mime="text/csv",
-            )
-        else:
-            st.info("No comments were scored.")
-
-elif mode == "Score specific IDs":
-    st.subheader("Score specific Metaculus question IDs")
-    qids_str = st.text_area(
-        "Metaculus IDs (comma or space separated)",
-        placeholder="Example: 12345, 67890, 13579",
-    )
-
-    qids: List[int] = []
-    if qids_str.strip():
-        for chunk in qids_str.replace(",", " ").split():
-            try:
-                qids.append(int(chunk))
-            except ValueError:
-                pass
-
-    if st.button("Run scoring on these IDs"):
-        if not qids:
-            st.warning("Please enter at least one valid ID.")
-        else:
+    if not OPENROUTER_API_KEY:
+        st.warning("Enter your OpenRouter API key in the sidebar to use this mode.")
+    else:
+        st.subheader("Score recent Metaculus questions")
+        n = st.number_input(
+            "Number of recent questions",
+            min_value=1,
+            max_value=100,
+            value=10,
+            step=1,
+        )
+        if st.button("Run scoring on recent questions"):
             with st.spinner("Fetching and scoring comments..."):
                 try:
-                    rows = score_specific_qids_streamlit(
-                        qids=qids, comments_limit=comments_limit
-                    )
+                    rows = score_recent_questions_streamlit(n=n, comments_limit=comments_limit)
                 except Exception as e:
                     st.error(f"Error during scoring: {e}")
                     rows = []
@@ -619,8 +577,83 @@ elif mode == "Score specific IDs":
                 st.download_button(
                     "Download CSV",
                     data=csv_data,
-                    file_name="metaculus_comment_scores_qids.csv",
+                    file_name="metaculus_comment_scores_recent.csv",
                     mime="text/csv",
                 )
             else:
                 st.info("No comments were scored.")
+
+elif mode == "Score specific IDs":
+    if not OPENROUTER_API_KEY:
+        st.warning("Enter your OpenRouter API key in the sidebar to use this mode.")
+    else:
+        st.subheader("Score specific Metaculus question IDs")
+        qids_str = st.text_area(
+            "Metaculus IDs (comma or space separated)",
+            placeholder="Example: 12345, 67890, 13579",
+        )
+        qids: List[int] = []
+        if qids_str.strip():
+            for chunk in qids_str.replace(",", " ").split():
+                try:
+                    qids.append(int(chunk))
+                except ValueError:
+                    pass
+        if st.button("Run scoring on these IDs"):
+            if not qids:
+                st.warning("Please enter at least one valid ID.")
+            else:
+                with st.spinner("Fetching and scoring comments..."):
+                    try:
+                        rows = score_specific_qids_streamlit(
+                            qids=qids, comments_limit=comments_limit
+                        )
+                    except Exception as e:
+                        st.error(f"Error during scoring: {e}")
+                        rows = []
+                if rows:
+                    df = pd.DataFrame(rows)
+                    st.success(f"{len(rows)} comments scored.")
+                    st.dataframe(df, use_container_width=True)
+                    csv_data = rows_to_csv(rows)
+                    st.download_button(
+                        "Download CSV",
+                        data=csv_data,
+                        file_name="metaculus_comment_scores_qids.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.info("No comments were scored.")
+
+elif mode == "Aggregate author scores from CSV":
+    st.subheader("Aggregate author scores from a CSV of comments")
+    uploaded = st.file_uploader(
+        "Upload CSV with comment scores",
+        type=["csv"],
+        help="Can be a CSV produced by this app or an external one.",
+    )
+    if uploaded is not None:
+        try:
+            df_in = pd.read_csv(uploaded)
+        except Exception as e:
+            st.error(f"Could not read CSV: {e}")
+            df_in = None
+        if df_in is not None:
+            st.markdown("Preview of input CSV:")
+            st.dataframe(df_in.head(), use_container_width=True)
+            try:
+                agg_df, auth_col, score_col = aggregate_author_scores(df_in)
+                st.success(f"Aggregated by author column `{auth_col}` with score column `{score_col}`.")
+                st.dataframe(agg_df, use_container_width=True)
+                csv_buf = io.StringIO()
+                agg_df.to_csv(csv_buf, index=False)
+                agg_bytes = csv_buf.getvalue().encode("utf-8")
+                st.download_button(
+                    "Download author ranking CSV",
+                    data=agg_bytes,
+                    file_name="author_totals.csv",
+                    mime="text/csv",
+                )
+            except Exception as e:
+                st.error(str(e))
+
