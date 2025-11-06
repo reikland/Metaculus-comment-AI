@@ -650,7 +650,7 @@ elif mode == "Score recent questions":
                 )
             if st.button("Press this to start a new run"):
                 st.session_state.pop("recent_results", None)
-                st.experimental_rerun()
+                st.rerun()
 
 elif mode == "Score specific IDs":
     if not OPENROUTER_API_KEY:
